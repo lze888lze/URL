@@ -6,18 +6,28 @@ export async function onRequest(context) {
     // 1. 获取真实 IP (支持 IPv4 和 IPv6)
     const realIP = request.headers.get('cf-connecting-ip') || 'unknown_ip';
 
-    // 2. 判断当前请求属于哪一类
-    let currentType = '未知';
+    // 2. 严格白名单校验
+    let currentType = null; // 初始化为 null，代表不在白名单内
     if (path.includes('/v2')) {
         currentType = 'v2';
     } else if (path.includes('/b64')) {
         currentType = 'b64';
     }
 
-    try {
-        // --- KV 读写逻辑开始 ---
+    // 如果不在白名单内，直接返回 403 禁止访问，不执行后续任何逻辑
+    if (!currentType) {
+        return new Response(JSON.stringify({ 
+            error: '403 Forbidden', 
+            msg: '该路径不在白名单内，仅允许访问 /v2 和 /b64' 
+        }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
 
-        // A. 尝试读取该 IP 现有的记录
+    try {
+        // --- KV 读写逻辑开始 (只有白名单内的请求才会被记录) ---
+
         const existingDataStr = await env.lze.get(realIP);
         let data;
 
@@ -25,12 +35,11 @@ export async function onRequest(context) {
             try {
                 data = JSON.parse(existingDataStr);
             } catch (e) {
-                // 如果旧数据损坏，重置为初始结构
                 data = null;
             }
         }
 
-        // B. 如果没数据或数据损坏，初始化为全量结构
+        // 初始化全量结构
         if (!data) {
             data = {
                 "次数": 0,
@@ -43,43 +52,33 @@ export async function onRequest(context) {
             };
         }
 
-        // C. 确保“尾缀”对象里的三个键都存在 (防止旧数据缺字段)
+        // 确保“尾缀”对象里的键都存在
         if (!data["尾缀"]) data["尾缀"] = {};
         if (typeof data["尾缀"]["v2"] !== 'number') data["尾缀"]["v2"] = 0;
         if (typeof data["尾缀"]["b64"] !== 'number') data["尾缀"]["b64"] = 0;
         if (typeof data["尾缀"]["未知"] !== 'number') data["尾缀"]["未知"] = 0;
 
-        // D. 执行计数 +1
+        // 执行计数 +1
         data["次数"] += 1;
-
-        // E. 根据当前类型，给对应的分类 +1
-        if (data["尾缀"].hasOwnProperty(currentType)) {
-            data["尾缀"][currentType] += 1;
-        } else {
-            // 如果出现了新分类，也给它加上并计数
-            data["尾缀"][currentType] = 1;
-        }
-
-        // F. 更新时间
+        // 因为已经过了白名单校验，currentType 必然是 'v2' 或 'b64'
+        data["尾缀"][currentType] += 1;
         data["time"] = new Date().toISOString();
 
-        // G. 写入 KV (使用 IP 作为 Key)
+        // 写入 KV
         await env.lze.put(realIP, JSON.stringify(data));
 
     } catch (e) {
         console.error('KV 记录失败:', e);
-        // 即使记录失败，也不影响后续转发，保证业务可用性
     }
 
-    // --- 3. 转发请求给 Hugging Face ---
+    // --- 3. 转发请求给 Hugging Face (严格映射) ---
     const targetMap = {
         '/v2': 'https://lze888lze-hf-api.hf.space/captcha/v2',
         '/b64': 'https://lze888lze-hf-api.hf.space/captcha/v2/base64'
     };
 
-    // 简单的路径匹配逻辑，如果都不匹配则默认走 /v2
-    let targetUrl = targetMap['/v2'];
-    if (path.includes('/b64')) targetUrl = targetMap['/b64'];
+    // 根据白名单类型精准匹配目标 URL
+    const targetUrl = targetMap['/' + currentType];
 
     try {
         const response = await fetch(targetUrl, {
