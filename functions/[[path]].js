@@ -85,7 +85,7 @@ export async function onRequest(context) {
         console.error('KV 记录失败:', e);
     }
 
-    // --- 4. 转发请求给 Hugging Face (严格映射 6 个接口) ---
+       // --- 4. 转发请求给 Hugging Face (严格映射 6 个接口) ---
     const targetMap = {
         '/slide': 'https://lze888lze-hf-api.hf.space/captcha/slide',
         '/hole': 'https://lze888lze-hf-api.hf.space/captcha/hole',
