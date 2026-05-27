@@ -3,10 +3,10 @@ export async function onRequest(context) {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // 1. 获取用户真实 IP (Cloudflare 标准头)
+    // 1. 获取真实 IP (IPv6 也是真实 IP)
     const realIP = request.headers.get('cf-connecting-ip') || 'unknown_ip';
 
-    // 2. 确定当前请求的尾缀类型
+    // 2. 智能判断请求类型 (使用 includes 模糊匹配)
     let type = 'unknown';
     if (path.includes('/v2')) {
         type = 'v2';
@@ -19,60 +19,51 @@ export async function onRequest(context) {
 
         // A. 尝试读取该 IP 现有的记录
         const existingDataStr = await env.lze.get(realIP);
-        let ipData = {};
 
-        // B. 如果读到了旧数据，就解析它；如果是第一次来，就用空对象
+        // B. 定义全量初始结构 (如果该 IP 第一次来，或者旧数据格式不对，就用这个)
+        let data = {
+            req_count: 0,       // 总请求次数
+            v2_count: 0,        // v2 接口请求次数
+            base64_count: 0,    // base64 接口请求次数
+            unknown_count: 0,   // 未知接口请求次数
+            time: new Date().toISOString() // 最近一次请求时间
+        };
+
+        // C. 如果读到了旧数据，尝试解析并保留旧数据
         if (existingDataStr) {
             try {
-                ipData = JSON.parse(existingDataStr);
+                const oldData = JSON.parse(existingDataStr);
+                // 合并旧数据，确保所有字段都存在 (防止旧数据缺字段)
+                data = { ...data, ...oldData };
             } catch (e) {
-                console.warn('JSON 解析失败，重置数据');
-                ipData = {};
+                console.warn('JSON解析失败，重置计数');
             }
         }
 
-        // C. 初始化或更新计数 (使用你要求的简洁英文键名)
-        // req_count: 总请求次数
-        ipData.req_count = (ipData.req_count || 0) + 1;
+        // D. 执行计数 +1 逻辑
+        data.req_count += 1; // 总次数必加
+        data.time = new Date().toISOString(); // 更新时间
 
-        // v2_count: /v2 尾缀次数
         if (type === 'v2') {
-            ipData.v2_count = (ipData.v2_count || 0) + 1;
+            data.v2_count += 1;
+        } else if (type === 'base64') {
+            data.base64_count += 1;
+        } else {
+            data.unknown_count += 1;
         }
 
-        // b64_count: /b64 尾缀次数
-        if (type === 'base64') {
-            ipData.b64_count = (ipData.b64_count || 0) + 1;
-        }
-
-        // unk_count: 未知尾缀次数
-        if (type === 'unknown') {
-            ipData.unk_count = (ipData.unk_count || 0) + 1;
-        }
-
-        // D. 更新最近一次请求时间
-        ipData.time = new Date().toISOString();
-
-        // E. 将新数据写回 KV (Key 是 IP, Value 是 JSON 字符串)
-        await env.lze.put(realIP, JSON.stringify(ipData));
-
-        // 可以在控制台看一眼，方便调试
-        console.log(`IP ${realIP} updated:`, ipData);
-
-        // --- KV 读写逻辑结束 ---
+        // E. 写入 KV (覆盖旧值)
+        await env.lze.put(realIP, JSON.stringify(data));
 
     } catch (e) {
-        console.error('KV 操作出错:', e);
-        // 即使 KV 挂了，也不影响下面的转发，保证服务可用
+        console.error('KV 操作失败:', e);
     }
 
-    // 3. 转发请求给 Hugging Face (保持原有逻辑不变)
+    // --- 转发逻辑 (保持不变) ---
     const targetMap = {
         '/v2': 'https://lze888lze-hf-api.hf.space/captcha/v2',
         '/b64': 'https://lze888lze-hf-api.hf.space/captcha/v2/base64'
     };
-
-    // 如果路径不完全匹配，默认走 /v2 (或者你可以改为返回 404)
     const targetUrl = targetMap[path] || targetMap['/v2'];
 
     try {
