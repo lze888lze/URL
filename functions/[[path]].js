@@ -4,7 +4,13 @@ export async function onRequest(context) {
     const path = url.pathname;
 
     // 1. 获取真实 IP (支持 IPv4 和 IPv6)
-    const realIP = request.headers.get('cf-connecting-ip') || 'unknown if (path.includes('/slide') && path.includes('-base64')) {
+    const realIP = request.headers.get('cf-connecting-ip') || 'unknown_ip';
+
+    // 2. 严格白名单校验
+    // 六个允许的路径：/slide、/slide-base64、/hole、/hole-base64、/puzzle、/puzzle-base64
+    let currentType = null; // null 代表不在白名单内
+
+    if (path.includes('/slide') && path.includes('-base64')) {
         currentType = 'slide-base64';
     } else if (path.includes('/slide')) {
         currentType = 'slide';
@@ -62,7 +68,13 @@ export async function onRequest(context) {
 
         // 确保"尾缀"对象里的键都存在 (防止旧数据缺字段)
         if (!data["尾缀"]) data["尾缀"] = {};
-        const allTypes = ["slide", "slide-b64", "hole", "hole-bTypeMap = {
+        const allTypes = ["slide", "slide-b64", "hole", "hole-b64", "puzzle", "puzzle-b64", "未知"];
+        for (const t of allTypes) {
+            if (typeof data["尾缀"][t] !== 'number') data["尾缀"][t] = 0;
+        }
+
+        // currentType 是完整形式如 "slide-base64"，写入 KV 时映射为短形式 "slide-b64"
+        const kvTypeMap = {
             'slide': 'slide',
             'slide-base64': 'slide-b64',
             'hole': 'hole',
