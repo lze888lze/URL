@@ -6,19 +6,25 @@ export async function onRequest(context) {
     // 1. 获取真实 IP (支持 IPv4 和 IPv6)
     const realIP = request.headers.get('cf-connecting-ip') || 'unknown_ip';
 
-    // 2. 严格白名单校验
-    let currentType = null; // 初始化为 null，代表不在白名单内
-    if (path.includes('/v2')) {
-        currentType = 'v2';
-    } else if (path.includes('/b64')) {
-        currentType = 'b64';
-    }
+    // 2. 获取归属地
+    const cf = request.cf || {};
+    const location = `${cf.country || '未知'} · ${cf.city || '未知城市'}`;
 
-    // 如果不在白名单内，直接返回 403 禁止访问，不执行后续任何逻辑
+    // 3. 严格的 6 接口白名单校验
+    let currentType = null;
+    
+    if (path.includes('/slide')) currentType = 'slide';
+    else if (path.includes('/hole')) currentType = 'hole';
+    else if (path.includes('/puzzle')) currentType = 'puzzle';
+    else if (path.includes('/slide-base64')) currentType = 'slide-base64';
+    else if (path.includes('/hole-base64')) currentType = 'hole-base64';
+    else if (path.includes('/puzzle-base64')) currentType = 'puzzle-base64';
+
+    // 如果不在白名单内，直接返回 403
     if (!currentType) {
         return new Response(JSON.stringify({ 
             error: '403 Forbidden', 
-            msg: '该路径不在白名单内，仅允许访问 /v2 和 /b64' 
+            msg: '该路径不在白名单内！' 
         }), {
             status: 403,
             headers: { 'Content-Type': 'application/json' }
@@ -26,7 +32,7 @@ export async function onRequest(context) {
     }
 
     try {
-        // --- KV 读写逻辑开始 (只有白名单内的请求才会被记录) ---
+        // --- KV 读写逻辑 ---
 
         const existingDataStr = await env.lze.get(realIP);
         let data;
@@ -42,26 +48,34 @@ export async function onRequest(context) {
         // 初始化全量结构
         if (!data) {
             data = {
+                "location": location,
                 "次数": 0,
                 "尾缀": {
-                    "v2": 0,
-                    "b64": 0,
+                    "slide": 0,
+                    "hole": 0,
+                    "puzzle": 0,
+                    "slide-base64": 0,
+                    "hole-base64": 0,
+                    "puzzle-base64": 0,
                     "未知": 0
                 },
                 "time": ""
             };
         }
 
-        // 确保“尾缀”对象里的键都存在
+        // 确保归属地字段存在（兼容旧数据）
+        if (!data["location"]) data["location"] = location;
+        // 确保“尾缀”对象里的所有接口键都存在
         if (!data["尾缀"]) data["尾缀"] = {};
-        if (typeof data["尾缀"]["v2"] !== 'number') data["尾缀"]["v2"] = 0;
-        if (typeof data["尾缀"]["b64"] !== 'number') data["尾缀"]["b64"] = 0;
-        if (typeof data["尾缀"]["未知"] !== 'number') data["尾缀"]["未知"] = 0;
+        const allTypes = ["slide", "hole", "puzzle", "slide-base64", "hole-base64", "puzzle-base64", "未知"];
+        allTypes.forEach(type => {
+            if (typeof data["尾缀"][type] !== 'number') data["尾缀"][type] = 0;
+        });
 
         // 执行计数 +1
         data["次数"] += 1;
-        // 因为已经过了白名单校验，currentType 必然是 'v2' 或 'b64'
         data["尾缀"][currentType] += 1;
+        // 记录北京时间
         data["time"] = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 
         // 写入 KV
@@ -71,10 +85,14 @@ export async function onRequest(context) {
         console.error('KV 记录失败:', e);
     }
 
-    // --- 3. 转发请求给 Hugging Face (严格映射) ---
+    // --- 4. 转发请求给 Hugging Face (严格映射 6 个接口) ---
     const targetMap = {
-        '/v2': 'https://lze888lze-hf-api.hf.space/captcha/v2',
-        '/b64': 'https://lze888lze-hf-api.hf.space/captcha/v2/base64'
+        '/slide': 'https://lze888lze-hf-api.hf.space/captcha/slide',
+        '/hole': 'https://lze888lze-hf-api.hf.space/captcha/hole',
+        '/puzzle': 'https://lze888lze-hf-api.hf.space/captcha/puzzle',
+        '/slide-base64': 'https://lze888lze-hf-api.hf.space/captcha/slide-base64',
+        '/hole-base64': 'https://lze888lze-hf-api.hf.space/captcha/hole-base64',
+        '/puzzle-base64': 'https://lze888lze-hf-api.hf.space/captcha/puzzle-base64'
     };
 
     // 根据白名单类型精准匹配目标 URL
