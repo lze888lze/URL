@@ -4,7 +4,7 @@ export default {
     const ip = request.headers.get('CF-Connecting-IP') || 'Unknown';
     const path = url.pathname;
 
-    // --- 1. 路径映射配置 (完全复刻你 _redirects 里的逻辑) ---
+    // --- 1. 路径映射配置 (完全复刻你 _redirects 里的正确逻辑) ---
     const PATH_MAPPING = {
       '/v2': 'https://lze888lze-hf-api.hf.space/captcha/v2',
       '/b64': 'https://lze888lze-hf-api.hf.space/captcha/v2/base64'
@@ -23,7 +23,6 @@ export default {
 
       data.total += 1;
       if (isAllowed) {
-        // 去掉斜杠作为 key (例如 /v2 -> v2)
         const key = path.substring(1);
         data[key] = (data[key] || 0) + 1;
       } else {
@@ -41,26 +40,29 @@ export default {
         });
       }
 
-      // --- 4. 转发请求到真实后端 (带超时和请求头净化) ---
+      // --- 4. 转发请求到真实后端 ---
       
-      // 净化请求头，去掉 Cloudflare 自动添加的多余头
+      // 净化请求头，只保留最基础的必要头信息
       const newHeaders = new Headers();
       request.headers.forEach((value, key) => {
+        // 过滤掉 Cloudflare 特有的头，防止后端不识别
         if (!['cf-connecting-ip', 'cf-ipcountry', 'cf-ray', 'x-forwarded-for', 'x-forwarded-proto', 'cdn-loop'].includes(key.toLowerCase())) {
           newHeaders.set(key, value);
         }
       });
+      // 确保 Host 头指向真实的后端域名
       newHeaders.set('Host', new URL(targetUrl).host);
 
-      // 设置 15 秒超时保护 (Hugging Face 有时候识别图片比较慢，给足时间)
+      // 核心修改：将超时时间从 10 秒延长到 30 秒！
+      // Hugging Face 的免费 Spaces 在冷启动或高负载时，识别一张图片可能需要 15-20 秒。
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const timeoutId = setTimeout(() => controller.abort(), 30000); 
 
       try {
         const response = await fetch(targetUrl, {
           method: request.method,
           headers: newHeaders,
-          body: request.body,
+          body: request.body, // 你的 Lua 脚本上传的图片数据就在这里
           signal: controller.signal
         });
         clearTimeout(timeoutId);
@@ -77,6 +79,7 @@ export default {
           });
         }
 
+        // 转发后端的成功响应（包含识别结果的 JSON）给 Lua
         return response;
 
       } catch (fetchError) {
