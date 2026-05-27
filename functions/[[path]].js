@@ -3,13 +3,12 @@ export async function onRequest(context) {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // --- 1. 获取客户端真实 IP ---
+    // 获取客户端真实 IP
     const ip = request.headers.get('CF-Connecting-IP') || 'Unknown';
 
-    // --- 2. 定义白名单路径 ---
+    // 定义白名单路径
     const ALLOWED_PATHS = ['/v2', '/b64'];
 
-    // --- 3. 只有白名单内的路径才触发记账 ---
     if (ALLOWED_PATHS.includes(path)) {
         // 使用 context.waitUntil 让 KV 在后台异步写入
         // 这样绝对不会拖慢 _redirects 的转发速度
@@ -36,7 +35,7 @@ export async function onRequest(context) {
         );
     }
 
-    // --- 4. 关键：返回 undefined ---
-    // 这里什么都不返回，Cloudflare 就会自动去执行 _redirects 里的 200 代理规则
+    // 【最关键的一步】：返回 undefined
+    // 只要这里不 return 任何 Response 对象，Cloudflare 就会自动去执行 _redirects 里的 200 代理规则
     return undefined;
 }
