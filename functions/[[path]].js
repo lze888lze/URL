@@ -37,5 +37,5 @@ export async function onRequest(context) {
 
     // 【最关键的一步】：返回 undefined
     // 只要这里不 return 任何 Response 对象，Cloudflare 就会自动去执行 _redirects 里的 200 代理规则
-    return undefined;
+    return;
 }
