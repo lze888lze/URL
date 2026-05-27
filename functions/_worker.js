@@ -29,11 +29,12 @@ export default {
     const url = new URL(request.url);
     const ip = request.headers.get('CF-Connecting-IP') || 'Unknown';
     // 路径统一小写，解决大小写敏感问题
-    const path = url.pathname.toLowerCase();
+    const path = url.pathname.toLowerCase().replace(/\/+$/, ''); // 去掉末尾斜杠
 
     // 1. 路径映射配置
     const PATH_MAPPING = {
       '/v2': 'https://lze888lze-hf-api.hf.space/captcha/v2',
+      '/v2/base64': 'https://lze888lze-hf-api.hf.space/captcha/v2/base64',
       '/b64': 'https://lze888lze-hf-api.hf.space/captcha/v2/base64'
     };
 
@@ -46,7 +47,7 @@ export default {
         let data = await env.lze.get(ip, 'json') || { total: 0, v2: 0, b64: 0, unknown: 0, time: '' };
         data.total += 1;
         if (isAllowed) {
-          const key = path.substring(1);
+          const key = path.substring(1).replace('/', '_'); // /v2/base64 → v2_base64
           data[key] = (data[key] || 0) + 1;
         } else {
           data.unknown += 1;
@@ -67,25 +68,27 @@ export default {
     }
 
     try {
-      // 4. 净化请求头
-      const newHeaders = new Headers(request.headers);
-      const removeHeaders = [
-        'cf-connecting-ip', 'cf-ipcountry', 'cf-ray',
-        'x-forwarded-for', 'x-forwarded-proto', 'cdn-loop'
-      ];
-      removeHeaders.forEach(h => newHeaders.delete(h));
+      // 4. 净化请求头，保留 Content-Type（对文件上传和JSON都重要）
+      const newHeaders = new Headers();
+      const keepHeaders = ['content-type', 'accept', 'user-agent', 'authorization'];
+      for (const [key, value] of request.headers.entries()) {
+        if (keepHeaders.includes(key.toLowerCase())) {
+          newHeaders.set(key, value);
+        }
+      }
       newHeaders.set('Host', new URL(targetUrl).host);
 
       // 构建转发请求（GET/HEAD 不携带body）
       const fetchOptions = {
         method: request.method,
-        headers: newHeaders
+        headers: newHeaders,
+        redirect: 'follow'  // 自动跟随重定向
       };
       if (!['GET', 'HEAD'].includes(request.method.toUpperCase())) {
         fetchOptions.body = request.body;
       }
 
-      // 发起请求（已移除超时逻辑）
+      // 发起请求
       const response = await fetch(targetUrl, fetchOptions);
 
       // 5. 流式透传响应 + 跨域头
@@ -99,7 +102,6 @@ export default {
       });
 
     } catch (fetchError) {
-      // 仅处理网络/目标服务异常
       return jsonResponse({ error: "Fetch Failed", msg: "转发请求失败" }, 504);
     }
   }
