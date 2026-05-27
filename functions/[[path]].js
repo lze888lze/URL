@@ -6,7 +6,24 @@ export async function onRequest(context) {
     // 1. 获取真实 IP (支持 IPv4 和 IPv6)
     const realIP = request.headers.get('cf-connecting-ip') || 'unknown_ip';
 
-    // 2. 严格白 {
+    // 2. 严格白名单校验
+    let currentType = null;
+
+    if (path.includes('/slide') && path.includes('-base64')) {
+        currentType = 'slide-base64';
+    } else if (path.includes('/slide')) {
+        currentType = 'slide';
+    } else if (path.includes('/hole') && path.includes('-base64')) {
+        currentType = 'hole-base64';
+    } else if (path.includes('/hole')) {
+        currentType = 'hole';
+    } else if (path.includes('/puzzle') && path.includes('-base64')) {
+        currentType = 'puzzle-base64';
+    } else if (path.includes('/puzzle')) {
+        currentType = 'puzzle';
+    }
+
+    if (!currentType) {
         return new Response(JSON.stringify({
             error: '403 Forbidden',
             msg: '该路径不在白名单内，仅允许访问 /slide、/slide-base64、/hole、/hole-base64、/puzzle、/puzzle-base64'
@@ -48,7 +65,20 @@ export async function onRequest(context) {
         // 计数 +1
         data["次数"] += 1;
 
-        // 根据接口类型给对应2026/5/28 04:02:53
+        // 根据接口类型给对应位置 +1
+        // 数组下标: 0=上传图片, 1=base64
+        const typeIndexMap = {
+            'slide':         ['sl', 0],
+            'slide-base64':  ['sl', 1],
+            'hole':          ['ho', 0],
+            'hole-base64':   ['ho', 1],
+            'puzzle':        ['pz', 0],
+            'puzzle-base64': ['pz', 1]
+        };
+        const [group, idx] = typeIndexMap[currentType];
+        data["尾缀"][group][idx] += 1;
+
+        // 更新北京时间，格式如：2026/5/28 04:02:53
         data["time"] = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 
         await env.lze.put(realIP, JSON.stringify(data));
