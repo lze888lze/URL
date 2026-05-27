@@ -6,26 +6,7 @@ export async function onRequest(context) {
     // 1. 获取真实 IP (支持 IPv4 和 IPv6)
     const realIP = request.headers.get('cf-connecting-ip') || 'unknown_ip';
 
-    // 2. 严格白名单校验
-    // 六个允许的路径：/slide、/slide-base64、/hole、/hole-base64、/puzzle、/puzzle-base64
-    let currentType = null; // null 代表不在白名单内
-
-    if (path.includes('/slide') && path.includes('-base64')) {
-        currentType = 'slide-base64';
-    } else if (path.includes('/slide')) {
-        currentType = 'slide';
-    } else if (path.includes('/hole') && path.includes('-base64')) {
-        currentType = 'hole-base64';
-    } else if (path.includes('/hole')) {
-        currentType = 'hole';
-    } else if (path.includes('/puzzle') && path.includes('-base64')) {
-        currentType = 'puzzle-base64';
-    } else if (path.includes('/puzzle')) {
-        currentType = 'puzzle';
-    }
-
-    // 如果不在白名单内，直接返回 403 禁止访问
-    if (!currentType) {
+    // 2. 严格白 {
         return new Response(JSON.stringify({
             error: '403 Forbidden',
             msg: '该路径不在白名单内，仅允许访问 /slide、/slide-base64、/hole、/hole-base64、/puzzle、/puzzle-base64'
@@ -36,7 +17,7 @@ export async function onRequest(context) {
     }
 
     try {
-        // --- KV 读写逻辑开始 (只有白名单内的请求才会被记录) ---
+        // --- KV 读写逻辑 ---
 
         const existingDataStr = await env.lze.get(realIP);
         let data;
@@ -49,54 +30,35 @@ export async function onRequest(context) {
             }
         }
 
-        // 初始化全量结构（KV 尾缀 key 用短形式 -b64，省空间）
+        // 初始化全量结构
+        // 次数=总调用次数, time=北京时间, 尾缀=类型统计
+        // 每个类型是数组 [上传图片次数, base64次数]
+        //   sl=slide, ho=hole, pz=puzzle
         if (!data) {
-            data = {
-                "次数": 0,
-                "尾缀": {
-                    "slide": 0,
-                    "slide-b64": 0,
-                    "hole": 0,
-                    "hole-b64": 0,
-                    "puzzle": 0,
-                    "puzzle-b64": 0,
-                    "未知": 0
-                },
-                "time": ""
-            };
+            data = { "次数": 0, "time": "", "尾缀": { "sl": [0, 0], "ho": [0, 0], "pz": [0, 0] } };
         }
 
-        // 确保"尾缀"对象里的键都存在 (防止旧数据缺字段)
+        // 兼容旧数据：确保结构完整
+        if (typeof data["次数"] !== 'number') data["次数"] = 0;
         if (!data["尾缀"]) data["尾缀"] = {};
-        const allTypes = ["slide", "slide-b64", "hole", "hole-b64", "puzzle", "puzzle-b64", "未知"];
-        for (const t of allTypes) {
-            if (typeof data["尾缀"][t] !== 'number') data["尾缀"][t] = 0;
-        }
+        if (!Array.isArray(data["尾缀"]["sl"])) data["尾缀"]["sl"] = [0, 0];
+        if (!Array.isArray(data["尾缀"]["ho"])) data["尾缀"]["ho"] = [0, 0];
+        if (!Array.isArray(data["尾缀"]["pz"])) data["尾缀"]["pz"] = [0, 0];
 
-        // currentType 是完整形式如 "slide-base64"，写入 KV 时映射为短形式 "slide-b64"
-        const kvTypeMap = {
-            'slide': 'slide',
-            'slide-base64': 'slide-b64',
-            'hole': 'hole',
-            'hole-base64': 'hole-b64',
-            'puzzle': 'puzzle',
-            'puzzle-base64': 'puzzle-b64'
-        };
-        const kvType = kvTypeMap[currentType] || '未知';
-
-        // 执行计数 +1
+        // 计数 +1
         data["次数"] += 1;
-        data["尾缀"][kvType] += 1;
-        data["time"] = new Date().toISOString();
 
-        // 写入 KV
+        // 根据接口类型给对应2026/5/28 04:02:53
+        data["time"] = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+
         await env.lze.put(realIP, JSON.stringify(data));
 
     } catch (e) {
         console.error('KV 记录失败:', e);
     }
 
-    // --- 3. 转发请求给 Hugging Face (严格映射) ---
+    // --- 3. 转发请求给 Hugging Face ---
+
     const targetMap = {
         'slide':          'https://lze888lze-hf-api.hf.space/slide',
         'slide-base64':   'https://lze888lze-hf-api.hf.space/slide-base64',
@@ -106,7 +68,6 @@ export async function onRequest(context) {
         'puzzle-base64':  'https://lze888lze-hf-api.hf.space/puzzle-base64'
     };
 
-    // 根据白名单类型精准匹配目标 URL
     const targetUrl = targetMap[currentType];
 
     try {
