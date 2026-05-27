@@ -62,7 +62,7 @@ export async function onRequest(context) {
         data["次数"] += 1;
         // 因为已经过了白名单校验，currentType 必然是 'v2' 或 'b64'
         data["尾缀"][currentType] += 1;
-        data["time"] = new Date().toISOString();
+        data["time"] = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 
         // 写入 KV
         await env.lze.put(realIP, JSON.stringify(data));
