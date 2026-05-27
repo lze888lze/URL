@@ -1,20 +1,42 @@
 export async function onRequest(context) {
-    const { env } = context;
+    const { request, env } = context;
+    const url = new URL(request.url);
+    const path = url.pathname;
 
+    // 1. 只要请求进来，就先往 KV 里写入一条测试数据，证明代码成功运行了
     try {
-        // 1. 直接写入一条固定的测试数据到 KV
-        // 键名是 'test_key'，值是 '{"msg": "hello_from_redirects"}'
-        await env.lze.put('test_key', JSON.stringify({ msg: 'hello_from_redirects' }));
-        
-        // 可以在控制台打个日志，方便你在 Pages 后台的 Functions 日志里看
-        console.log('KV 测试写入成功！');
-
+        await env.lze.put('test_key', JSON.stringify({ 
+            msg: 'worker_is_running', 
+            time: new Date().toISOString() 
+        }));
+        console.log('KV 测试数据写入成功！');
     } catch (e) {
-        // 即使 KV 写入失败，也打印错误，但绝对不返回任何内容
-        // 保证不影响 _redirects 的执行
         console.error('KV 写入失败:', e);
+        // 即使 KV 挂了，也继续往下走，尽量返回接口数据
     }
 
-    // 2. 核心：什么都不返回 (等同于 return undefined)
-    // Cloudflare 发现 [[path]].js 没有任何返回，就会自动去执行根目录 _redirects 的 307 规则
+    // 2. 直接在 Worker 里手动转发请求给 Hugging Face
+    // 目标接口地址
+    const targetMap = {
+        '/v2': 'https://lze888lze-hf-api.hf.space/captcha/v2',
+        '/b64': 'https://lze888lze-hf-api.hf.space/captcha/v2/base64'
+    };
+    const targetUrl = targetMap[path] || targetMap['/v2']; // 默认走 /v2
+
+    try {
+        // 发起转发请求
+        const response = await fetch(targetUrl, {
+            method: request.method,
+            headers: request.headers,
+            body: request.body
+        });
+        // 把 Hugging Face 的真实结果返回给你的 Lua 脚本
+        return response;
+    } catch (e) {
+        // 如果转发失败，返回一个明确的报错信息
+        return new Response(JSON.stringify({ error: 'Fetch Failed', msg: e.message }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
 }
