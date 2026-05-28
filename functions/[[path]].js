@@ -22,8 +22,8 @@ const HF_BASE_URL = 'https://lze888lze-hf-api.hf.space';
 // 默认数据结构
 const DEFAULT_DATA = {
     "次数": 0,
-    "time": "",
-    "尾缀": { "sl": [0, 0], "ho": [0, 0], "pz": [0, 0] }
+    "尾缀": { "sl": [0, 0], "ho": [0, 0], "pz": [0, 0] },
+    "time": ""
 };
 
 // 直辖市列表
@@ -143,12 +143,12 @@ async function loadKVData(env, key) {
         // 兼容旧数据 + 补充缺失字段
         return {
             "次数": typeof data["次数"] === 'number' ? data["次数"] : 0,
-            "time":  data["time"] || '',
             "尾缀": {
                 "sl": Array.isArray(data["尾缀"]?.["sl"]) ? data["尾缀"]["sl"] : [0, 0],
                 "ho": Array.isArray(data["尾缀"]?.["ho"]) ? data["尾缀"]["ho"] : [0, 0],
                 "pz": Array.isArray(data["尾缀"]?.["pz"]) ? data["尾缀"]["pz"] : [0, 0],
-            }
+            },
+            "time": data["time"] || ''
         };
     } catch (e) {
         return JSON.parse(JSON.stringify(DEFAULT_DATA));
