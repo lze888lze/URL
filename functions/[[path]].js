@@ -57,8 +57,9 @@ export async function onRequest(context) {
     // 1. 获取访问者 IP
     const realIP = request.headers.get('cf-connecting-ip') || 'unknown_ip';
 
-    // 2. 路由匹配与白名单校验
-    const typeConfig = TYPE_CONFIG[path];
+    // 2. 路由匹配与白名单校验（去掉开头的 /）
+    const cleanPath = path.replace(/^\//, '');
+    const typeConfig = TYPE_CONFIG[cleanPath];
     if (!typeConfig) {
         return new Response(JSON.stringify({
             error: '403 Forbidden',
