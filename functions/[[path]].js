@@ -15,6 +15,8 @@ const TYPE_CONFIG = {
     'hole-base64':    { stats: 'ho', mode: 1, target: 'hole-base64' },
     'puzzle':         { stats: 'pz', mode: 0, target: 'puzzle' },
     'puzzle-base64':  { stats: 'pz', mode: 1, target: 'puzzle-base64' },
+    'visualize':      { stats: 'vz', mode: 0, target: 'visualize' },
+    'visualize-base64': { stats: 'vz', mode: 1, target: 'visualize-base64' },
 };
 
 const HF_BASE_URL = 'https://lze888lze-hf-api.hf.space';
@@ -22,7 +24,7 @@ const HF_BASE_URL = 'https://lze888lze-hf-api.hf.space';
 // 默认数据结构
 const DEFAULT_DATA = {
     "次数": 0,
-    "尾缀": { "sl": [0, 0], "ho": [0, 0], "pz": [0, 0] },
+    "尾缀": { "sl": [0, 0], "ho": [0, 0], "pz": [0, 0], "vz": [0, 0] },
     "time": ""
 };
 
